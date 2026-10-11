@@ -1,61 +1,58 @@
 apiVersion: tekton.dev/v1beta1
-kind: Pipeline
+kind: Task
 metadata:
-  name: juphc-tc-pipeline
+  name: cleanup
 spec:
   workspaces:
-    - name: pipeline-workspace
-    - name: dockerconfig-ws
+    - name: source
   params:
-    - name: repo-url
-    - name: branch
-      default: main
-    - name: build-image
-      default: image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/my-app:latest
-  tasks:
-    - name: init
-      taskRef:
-        name: cleanup
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-    - name: clone
-      taskRef:
-        name: git-clone
-      params:
-        - name: url
-          value: $(params.repo-url)
-        - name: revision
-          value: $(params.branch)
-      workspaces:
-        - name: output
-          workspace: pipeline-workspace
-      runAfter:
-        - init
-    - name: npminstall
-      taskRef:
-        name: npm
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-      runAfter:
-        - clone
-    - name: tests
-      taskRef:
-        name: jasmine
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-      runAfter:
-        - npminstall
-    - name: build
-      taskRef:
-        name: buildah
-      params:
-        - name: IMAGE
-          value: $(params.build-image)
-      workspaces:
-        - name: source
-          workspace: pipeline-workspace
-      runAfter:
-        - tests
+    - name: WORKSPACE_SOURCE_PATH
+      type: string
+      default: "."
+  steps:
+    - name: remove
+      image: alpine:3
+      script: |
+        #!/usr/bin/env sh
+        set -e
+        echo "Cleaning workspace..."
+        rm -rf $(workspaces.source.path)/$(params.WORKSPACE_SOURCE_PATH)/*
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: npminstall
+spec:
+  workspaces:
+    - name: source
+  steps:
+    - name: npm-install
+      image: node:20-buster-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        echo "***** Environment *****"
+        npm --version
+        pwd
+        echo "***** Cleaning npm cache *****"
+        npm cache clean --force
+        echo "***** Running npm install *****"
+        npm install
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: jasmine
+spec:
+  workspaces:
+    - name: source
+  steps:
+    - name: run-tests
+      image: node:20-buster-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        echo "***** Running jasminetests *****"
+        npx jasmine
